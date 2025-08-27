@@ -8,7 +8,7 @@ def send_telegram_message():
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {
-        "chat_id": @Flip42022,
+        "chat_id": Flip42022,
         "text": message
     }
 
