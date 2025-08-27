@@ -15,5 +15,5 @@ def send_telegram_message():
     print(res.json())
 
 if __name__ == "__main__":
-    send_telegram_message()
+    send_telegram_message(hi)
 
