@@ -1,9 +1,9 @@
-import os
 import requests
 
 def send_telegram_message():
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
-    user_id = os.getenv("TELEGRAM_USER_ID")
+    # 🚨 Hardcoded for testing only — delete after confirming it's working
+    token = "8282101491:AAGgnEF-ML2Jv0dnBF76No1kzCyIdo6A9vU"
+    user_id = "1404344692"
     message = "🚀 HyperBot está en línea, mi comandante!"
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
@@ -17,3 +17,4 @@ def send_telegram_message():
 
 if __name__ == "__main__":
     send_telegram_message()
+
