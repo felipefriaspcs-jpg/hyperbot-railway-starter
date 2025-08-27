@@ -1,1 +1,3 @@
-print("HyperBot is alive and running!")
+from rsi_scalping_bot import main
+
+main()
