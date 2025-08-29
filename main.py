@@ -18,6 +18,7 @@ SLEEP_SECONDS = 30
 # === EXCHANGE ===
 exchange = ccxt.bitrue({'enableRateLimit': True})
 
+# === ORDER FUNCTION ===
 def place_order(symbol, side, price):
     try:
         balance = exchange.fetch_balance()
@@ -25,11 +26,12 @@ def place_order(symbol, side, price):
         quote_available = balance[quote_currency]['free']
         amount_to_trade = (quote_available * 0.05) / price
 
-        order = exchange.create_market_order(symbol, side, round(amount_to_trade, 4))
+        exchange.create_market_order(symbol, side, round(amount_to_trade, 4))
         print(f"✅ {side.upper()} order placed for {symbol} — Amount: {round(amount_to_trade, 4)} at price {price}")
     except Exception as e:
         print(f"❌ Failed to place {side} order for {symbol}: {e}")
 
+# === STRATEGY LOGIC ===
 def analyze_pair(symbol):
     try:
         ohlcv = exchange.fetch_ohlcv(symbol, TIMEFRAME, limit=LIMIT)
