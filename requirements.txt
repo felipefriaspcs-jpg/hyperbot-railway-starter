@@ -1,4 +1,1 @@
-requests
 ccxt
-python-dotenv
-pandas
