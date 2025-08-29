@@ -1,50 +1,44 @@
-# multi_pair_trading_bot.py
-
-import time
 import os
-import logging
-from decimal import Decimal
-from exchange_api import ExchangeClient  # Custom wrapper for Bitrue or similar
-from strategy import RSIStrategy
+import time
+from exchange_api import BitrueAPI
+from strategy import Strategy
 
-# Logging setup
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Load environment variables
+API_KEY = os.getenv("API_KEY")
+API_SECRET = os.getenv("API_SECRET")
+TRADING_PAIRS = os.getenv("TRADING_PAIRS", "XRP/USDT").split(",")
+TRADE_AMOUNT_PERCENTAGE = float(os.getenv("TRADE_AMOUNT_PERCENTAGE", 5))  # % of balance
+STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", 2))
+TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 3))
 
-# Environment variables
-TRADING_PAIRS = os.getenv("TRADING_PAIRS", "BTC/USDT,ETH/USDT").split(',')
-TRADE_AMOUNT_PERCENTAGE = Decimal(os.getenv("TRADE_AMOUNT_PERCENTAGE", "5"))
-STOP_LOSS_PERCENT = Decimal(os.getenv("STOP_LOSS_PERCENT", "2"))
-TAKE_PROFIT_PERCENT = Decimal(os.getenv("TAKE_PROFIT_PERCENT", "3"))
-POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", 30))
+# Initialize exchange and strategy
+api = BitrueAPI(API_KEY, API_SECRET)
+strategy = Strategy()
 
-# Initialize Exchange API
-exchange = ExchangeClient(
-    api_key=os.getenv("API_KEY"),
-    api_secret=os.getenv("API_SECRET")
-)
+print("🔁 Starting XRP accumulation strategy...")
 
-# Strategy
-strategy = RSIStrategy()
-
-# Main loop
 while True:
     for pair in TRADING_PAIRS:
         try:
-            balance = exchange.get_balance(pair.split("/")[1])
-            trade_amount = balance * TRADE_AMOUNT_PERCENTAGE / Decimal(100)
-            price_data = exchange.get_ohlcv(pair)
+            print(f"\n📊 Checking market for {pair}...")
+            base, quote = pair.split("/")
+            price = api.get_price(pair)
+            rsi = strategy.calculate_rsi(pair)
 
-            signal = strategy.evaluate(price_data)
-            if signal == "buy":
-                logger.info(f"Buy signal for {pair}")
-                exchange.buy(pair, trade_amount, STOP_LOSS_PERCENT, TAKE_PROFIT_PERCENT)
+            print(f"RSI: {rsi:.2f} | Price: {price}")
 
-            elif signal == "sell":
-                logger.info(f"Sell signal for {pair}")
-                exchange.sell(pair, trade_amount, STOP_LOSS_PERCENT, TAKE_PROFIT_PERCENT)
+            if strategy.should_buy(rsi):
+                balance = api.get_balance(quote)
+                amount_to_trade = (balance * TRADE_AMOUNT_PERCENTAGE) / 100 / price
+                print(f"✅ Buy signal detected. Placing buy order for {amount_to_trade:.4f} {base}")
+                api.place_order(pair, side="BUY", amount=amount_to_trade)
+
+            elif strategy.should_sell(rsi):
+                balance = api.get_balance(base)
+                print(f"🚨 Sell signal detected. Placing sell order for {balance:.4f} {base}")
+                api.place_order(pair, side="SELL", amount=balance)
 
         except Exception as e:
-            logger.error(f"Error processing {pair}: {str(e)}")
+            print(f"❌ Error with pair {pair}: {e}")
 
-    time.sleep(POLL_INTERVAL)
+    time.sleep(15)  # Wait before checking again
