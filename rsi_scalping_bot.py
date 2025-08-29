@@ -1,86 +1,109 @@
-# LIVE HYPERBOT FOR FLR/USDT AND XRP/USDT
-# Trades 24/7 with scalping, sniping, and market-making logic
-# Uses 5% of balance per trade with stop-loss and take-profit
-
+import ccxt
 import time
-import requests
-import hmac
-import hashlib
-import os
+import logging
 
-API_KEY = os.getenv("API_KEY")  # Set securely in Railway
-API_SECRET = os.getenv("API_SECRET")
-BASE_URL = "https://api.bitrue.com"
+# Logging setup
+logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(message)s')
 
-SYMBOLS = ["FLRUSDT", "XRPUSDT"]
-TRADE_SIZE_RATIO = 0.05  # 5% of balance
-STOP_LOSS_PERCENT = 0.03
-TAKE_PROFIT_PERCENT = 0.05
+# Your API keys (use Railway secrets or environment vars in production)
+api_key = 'YOUR_API_KEY'
+secret = 'YOUR_API_SECRET'
 
-HEADERS = {"X-MBX-APIKEY": API_KEY}
-
-def sign(params):
-    query = "&".join([f"{k}={v}" for k, v in params.items()])
-    signature = hmac.new(API_SECRET.encode(), query.encode(), hashlib.sha256).hexdigest()
-    return query + f"&signature={signature}"
-
-def get_balance(asset="USDT"):
-    ts = int(time.time() * 1000)
-    query = {"timestamp": ts}
-    url = f"{BASE_URL}/api/v1/account?{sign(query)}"
-    res = requests.get(url, headers=HEADERS).json()
-    for bal in res.get("balances", []):
-        if bal["asset"] == asset:
-            return float(bal["free"])
-    return 0.0
-
-def get_price(symbol):
-    url = f"{BASE_URL}/api/v1/ticker/price?symbol={symbol}"
-    return float(requests.get(url).json()["price"])
-
-def place_order(symbol, side, quantity):
-    ts = int(time.time() * 1000)
-    data = {
-        "symbol": symbol,
-        "side": side,
-        "type": "MARKET",
-        "quantity": quantity,
-        "timestamp": ts
+# Initialize exchange
+exchange = ccxt.bitrue({
+    'apiKey': api_key,
+    'secret': secret,
+    'enableRateLimit': True,
+    'options': {
+        'defaultType': 'spot',  # Use 'future' if trading perpetuals
     }
-    url = f"{BASE_URL}/api/v1/order"
-    signed = sign(data)
-    res = requests.post(url + "?" + signed, headers=HEADERS)
-    return res.json()
+})
 
-def trade_loop():
+# Config
+PAIR_LIST = ['FLR/USDT', 'XRP/USDT']
+TRADE_SIZE_PCT = 0.05
+TAKE_PROFIT_PCT = 0.02   # 2%
+STOP_LOSS_PCT = 0.01     # 1%
+INTERVAL = 30  # seconds between cycles
+
+def fetch_rsi(symbol, timeframe='1m', period=14):
+    ohlcv = exchange.fetch_ohlcv(symbol, timeframe)
+    closes = [x[4] for x in ohlcv]
+    if len(closes) < period:
+        return None
+
+    gains, losses = [], []
+    for i in range(1, period + 1):
+        delta = closes[-i] - closes[-i - 1]
+        if delta > 0:
+            gains.append(delta)
+        else:
+            losses.append(abs(delta))
+
+    avg_gain = sum(gains) / period if gains else 0.0001
+    avg_loss = sum(losses) / period if losses else 0.0001
+
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return round(rsi, 2)
+
+def get_balance(asset):
+    balance = exchange.fetch_balance()
+    return balance[asset]['free']
+
+def place_order(symbol, side, price, amount):
+    try:
+        logging.info(f"{symbol} Signal: {side.upper()}")
+        logging.info(f"Placing {side.upper()} order for {amount:.2f} at {price}")
+        if side == 'buy':
+            order = exchange.create_limit_buy_order(symbol, amount, price)
+        else:
+            order = exchange.create_limit_sell_order(symbol, amount, price)
+        logging.info(f"Order placed: {order['id']}")
+        return order
+    except Exception as e:
+        logging.error(f"Order error: {e}")
+        return None
+
+def run_trading_cycle(symbol):
+    try:
+        rsi = fetch_rsi(symbol)
+        logging.info(f"[{symbol}] RSI: {rsi}")
+
+        if rsi is None:
+            return
+
+        ticker = exchange.fetch_ticker(symbol)
+        price = ticker['last']
+        base = symbol.split('/')[0]
+        quote = symbol.split('/')[1]
+
+        balance = get_balance(quote)
+        trade_amount = (balance * TRADE_SIZE_PCT) / price
+
+        if rsi < 30:
+            # BUY Signal
+            buy_order = place_order(symbol, 'buy', price, trade_amount)
+            if buy_order:
+                sl = price * (1 - STOP_LOSS_PCT)
+                tp = price * (1 + TAKE_PROFIT_PCT)
+                logging.info(f"[{symbol}] SL: {sl:.4f}, TP: {tp:.4f}")
+
+        elif rsi > 70:
+            # SELL Signal
+            base_balance = get_balance(base)
+            if base_balance > 0:
+                sell_order = place_order(symbol, 'sell', price, base_balance)
+                if sell_order:
+                    sl = price * (1 + STOP_LOSS_PCT)
+                    tp = price * (1 - TAKE_PROFIT_PCT)
+                    logging.info(f"[{symbol}] SL: {sl:.4f}, TP: {tp:.4f}")
+    except Exception as e:
+        logging.error(f"[{symbol}] Trading error: {e}")
+
+def main():
     while True:
-        try:
-            balance = get_balance()
-            allocation = balance * TRADE_SIZE_RATIO
-            for sym in SYMBOLS:
-                price = get_price(sym)
-                quantity = round(allocation / price, 2)
-                print(f"Placing trade for {sym} - Qty: {quantity}")
-                buy = place_order(sym, "BUY", quantity)
-                print("BUY ORDER:", buy)
-                # Simulated stop loss & take profit
-                entry = price
-                stop = entry * (1 - STOP_LOSS_PERCENT)
-                target = entry * (1 + TAKE_PROFIT_PERCENT)
-                while True:
-                    curr = get_price(sym)
-                    if curr <= stop:
-                        print("Stop hit!")
-                        sell = place_order(sym, "SELL", quantity)
-                        break
-                    elif curr >= target:
-                        print("Target hit!")
-                        sell = place_order(sym, "SELL", quantity)
-                        break
-                    time.sleep(10)
-        except Exception as e:
-            print("Error:", e)
-            time.sleep(30)
-
-if __name__ == "__main__":
-    trade_loop()
+        for pair in PAIR_LIST:
+            run_trading_cycle(pair)
+        logging.info("Cycle complete. Sleeping...\n")
+        time.sleep(INTERVAL)
