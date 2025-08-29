@@ -10,6 +10,7 @@ SYMBOLS = [
     'BCH/USDT', 'APT/USDT', 'DOT/USDT', 'OP/USDT', 'MATIC/USDT', 'FET/USDT',
     'SUI/USDT', 'ARB/USDT', 'PEPE/USDT'
 ]
+
 TIMEFRAME = '1h'
 LIMIT = 100
 SLEEP_SECONDS = 30
@@ -17,35 +18,18 @@ SLEEP_SECONDS = 30
 # === EXCHANGE ===
 exchange = ccxt.bitrue({'enableRateLimit': True})
 
-
-# === SIGNAL LOGIC ===
-def generate_signal(df):
-    if df is None or df.empty or len(df) < 50:
-        return "ERROR"
-
+def place_order(symbol, side, price):
     try:
-        last = df.iloc[-1]
+        balance = exchange.fetch_balance()
+        quote_currency = symbol.split('/')[1]
+        quote_available = balance[quote_currency]['free']
+        amount_to_trade = (quote_available * 0.05) / price
 
-        if (
-            last['rsi'] < 30 and
-            last['MACD_12_26_9'] > last['MACDs_12_26_9'] and
-            last['close'] < last['BBL_20_2.0']
-        ):
-            return "BUY"
-        elif (
-            last['rsi'] > 70 and
-            last['MACD_12_26_9'] < last['MACDs_12_26_9'] and
-            last['close'] > last['BBU_20_2.0']
-        ):
-            return "SELL"
-        else:
-            return "HOLD"
+        order = exchange.create_market_order(symbol, side, round(amount_to_trade, 4))
+        print(f"✅ {side.upper()} order placed for {symbol} — Amount: {round(amount_to_trade, 4)} at price {price}")
     except Exception as e:
-        print(f"⚠️ Error in signal logic: {e}")
-        return "ERROR"
+        print(f"❌ Failed to place {side} order for {symbol}: {e}")
 
-
-# === ANALYSIS ===
 def analyze_pair(symbol):
     try:
         ohlcv = exchange.fetch_ohlcv(symbol, TIMEFRAME, limit=LIMIT)
@@ -56,24 +40,40 @@ def analyze_pair(symbol):
         macd = ta.macd(df['close'])
         bbands = ta.bbands(df['close'])
 
-        if macd is None or bbands is None:
-            return "ERROR"
-
         df = pd.concat([df, macd, bbands], axis=1)
 
-        return generate_signal(df)
+        if df.empty or len(df) < 50:
+            return "ERROR"
+
+        last = df.iloc[-1]
+        price = last['close']
+
+        if (
+            last['rsi'] < 30 and
+            last['MACD_12_26_9'] > last['MACDs_12_26_9'] and
+            last['close'] < last['BBL_20_2.0']
+        ):
+            place_order(symbol, 'buy', price)
+            return "BUY"
+        elif (
+            last['rsi'] > 70 and
+            last['MACD_12_26_9'] < last['MACDs_12_26_9'] and
+            last['close'] > last['BBU_20_2.0']
+        ):
+            place_order(symbol, 'sell', price)
+            return "SELL"
+        else:
+            return "HOLD"
 
     except Exception as e:
         print(f"⚠️ Error analyzing {symbol}: {e}")
         return "ERROR"
 
-
 # === MAIN LOOP ===
-if __name__ == "__main__":
-    while True:
-        for symbol in SYMBOLS:
-            signal = analyze_pair(symbol)
-            print(f"[{symbol}] Signal: {signal}")
+while True:
+    for symbol in SYMBOLS:
+        signal = analyze_pair(symbol)
+        print(f"[{symbol}] Signal: {signal}")
 
-        print("\n🔁 Cycle complete. Sleeping 30s...\n")
-        time.sleep(SLEEP_SECONDS)
+    print("\n🔁 Cycle complete. Sleeping 30s...\n")
+    time.sleep(SLEEP_SECONDS)
