@@ -57,3 +57,26 @@ while True:
 
     print("\n🔁 Cycle complete. Sleeping 30s...\n")
     time.sleep(SLEEP_SECONDS)
+def generate_signal(df):
+    # Skip processing if we have too few candles or dataframe is empty
+    if df is None or df.empty or len(df) < 50:
+        return "ERROR"
+
+    last = df.iloc[-1]
+    try:
+        if (
+            last['rsi'] < 30
+            and last['MACD_12_26_9'] > last['MACDs_12_26_9']
+            and last['close'] < last['BBL_20_2.0']
+        ):
+            return "BUY"
+        elif (
+            last['rsi'] > 70
+            and last['MACD_12_26_9'] < last['MACDs_12_26_9']
+            and last['close'] > last['BBU_20_2.0']
+        ):
+            return "SELL"
+        else:
+            return "HOLD"
+    except Exception:
+        return "ERROR"
