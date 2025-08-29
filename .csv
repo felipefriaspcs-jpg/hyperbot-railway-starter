@@ -1,0 +1,10 @@
+def log_trade(symbol, side, amount, price):
+    now = pd.Timestamp.now()
+    entry = pd.DataFrame([{
+        'timestamp': now,
+        'symbol': symbol,
+        'side': side.upper(),
+        'amount': amount,
+        'price': price
+    }])
+    entry.to_csv("trades_log.csv", mode='a', index=False, header=not pd.io.common.file_exists("trades_log.csv"))
