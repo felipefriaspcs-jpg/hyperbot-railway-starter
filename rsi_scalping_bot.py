@@ -1,109 +1,99 @@
 import ccxt
 import time
-import logging
+import requests
+import os
+from datetime import datetime
 
-# Logging setup
-logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(message)s')
+# Configuration (use environment variables if deploying on Railway)
+API_KEY = os.getenv("API_KEY")
+API_SECRET = os.getenv("API_SECRET")
+TRADE_AMOUNT_PERCENTAGE = float(os.getenv("TRADE_AMOUNT_PERCENTAGE", 0.05))
+STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", 0.03))
+TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 0.06))
+MIN_VOLUME_USDT = float(os.getenv("MIN_VOLUME_USDT", 10000))
 
-# Your API keys (use Railway secrets or environment vars in production)
-api_key = 'YOUR_API_KEY'
-secret = 'YOUR_API_SECRET'
-
-# Initialize exchange
+# Initialize Exchange (Bitrue uses ccxt bybit/okx interface)
 exchange = ccxt.bitrue({
-    'apiKey': api_key,
-    'secret': secret,
-    'enableRateLimit': True,
-    'options': {
-        'defaultType': 'spot',  # Use 'future' if trading perpetuals
-    }
+    'apiKey': API_KEY,
+    'secret': API_SECRET,
+    'enableRateLimit': True
 })
 
-# Config
-PAIR_LIST = ['FLR/USDT', 'XRP/USDT']
-TRADE_SIZE_PCT = 0.05
-TAKE_PROFIT_PCT = 0.02   # 2%
-STOP_LOSS_PCT = 0.01     # 1%
-INTERVAL = 30  # seconds between cycles
+# -------------------
+# Dynamic Pair Fetching
+# -------------------
+def get_liquid_usdt_pairs(min_volume_usdt=10000):
+    url = "https://www.bitrue.com/api/v1/ticker/24hr"
+    response = requests.get(url)
+    pairs = []
 
-def fetch_rsi(symbol, timeframe='1m', period=14):
-    ohlcv = exchange.fetch_ohlcv(symbol, timeframe)
-    closes = [x[4] for x in ohlcv]
-    if len(closes) < period:
-        return None
+    if response.status_code == 200:
+        data = response.json()
+        for item in data:
+            if item['symbol'].endswith('USDT'):
+                try:
+                    volume = float(item['quoteVolume'])
+                    if volume >= min_volume_usdt:
+                        pairs.append(item['symbol'])
+                except:
+                    continue
+    return pairs
 
-    gains, losses = [], []
-    for i in range(1, period + 1):
-        delta = closes[-i] - closes[-i - 1]
-        if delta > 0:
-            gains.append(delta)
-        else:
-            losses.append(abs(delta))
-
-    avg_gain = sum(gains) / period if gains else 0.0001
-    avg_loss = sum(losses) / period if losses else 0.0001
-
-    rs = avg_gain / avg_loss
+# -------------------
+# RSI Calculation
+# -------------------
+def calculate_rsi(prices, period=14):
+    deltas = [prices[i + 1] - prices[i] for i in range(len(prices) - 1)]
+    seed = deltas[:period]
+    avg_gain = sum([delta for delta in seed if delta > 0]) / period
+    avg_loss = -sum([delta for delta in seed if delta < 0]) / period
+    
+    rs = avg_gain / avg_loss if avg_loss != 0 else 0
     rsi = 100 - (100 / (1 + rs))
-    return round(rsi, 2)
+    return rsi
 
-def get_balance(asset):
-    balance = exchange.fetch_balance()
-    return balance[asset]['free']
+# -------------------
+# Trading Logic
+# -------------------
+def run_bot():
+    trading_pairs = get_liquid_usdt_pairs(MIN_VOLUME_USDT)
 
-def place_order(symbol, side, price, amount):
-    try:
-        logging.info(f"{symbol} Signal: {side.upper()}")
-        logging.info(f"Placing {side.upper()} order for {amount:.2f} at {price}")
-        if side == 'buy':
-            order = exchange.create_limit_buy_order(symbol, amount, price)
-        else:
-            order = exchange.create_limit_sell_order(symbol, amount, price)
-        logging.info(f"Order placed: {order['id']}")
-        return order
-    except Exception as e:
-        logging.error(f"Order error: {e}")
-        return None
+    for symbol in trading_pairs:
+        try:
+            ohlcv = exchange.fetch_ohlcv(symbol, timeframe='5m', limit=100)
+            closes = [x[4] for x in ohlcv]
+            rsi = calculate_rsi(closes)
+            print(f"{symbol} RSI: {rsi:.2f}")
 
-def run_trading_cycle(symbol):
-    try:
-        rsi = fetch_rsi(symbol)
-        logging.info(f"[{symbol}] RSI: {rsi}")
+            balance = exchange.fetch_balance()
+            usdt_balance = balance['total']['USDT']
+            trade_size = usdt_balance * TRADE_AMOUNT_PERCENTAGE
 
-        if rsi is None:
-            return
+            price = closes[-1]
 
-        ticker = exchange.fetch_ticker(symbol)
-        price = ticker['last']
-        base = symbol.split('/')[0]
-        quote = symbol.split('/')[1]
+            if rsi < 30:
+                # Buy
+                amount = trade_size / price
+                order = exchange.create_market_buy_order(symbol, amount)
+                print(f"BUY {symbol} at {price} => {order}")
 
-        balance = get_balance(quote)
-        trade_amount = (balance * TRADE_SIZE_PCT) / price
+            elif rsi > 70:
+                # Sell
+                coin = symbol.replace('USDT', '')
+                if coin in balance['free'] and balance['free'][coin] > 0:
+                    amount = balance['free'][coin]
+                    order = exchange.create_market_sell_order(symbol, amount)
+                    print(f"SELL {symbol} at {price} => {order}")
 
-        if rsi < 30:
-            # BUY Signal
-            buy_order = place_order(symbol, 'buy', price, trade_amount)
-            if buy_order:
-                sl = price * (1 - STOP_LOSS_PCT)
-                tp = price * (1 + TAKE_PROFIT_PCT)
-                logging.info(f"[{symbol}] SL: {sl:.4f}, TP: {tp:.4f}")
+        except Exception as e:
+            print(f"Error trading {symbol}: {e}")
+            continue
 
-        elif rsi > 70:
-            # SELL Signal
-            base_balance = get_balance(base)
-            if base_balance > 0:
-                sell_order = place_order(symbol, 'sell', price, base_balance)
-                if sell_order:
-                    sl = price * (1 + STOP_LOSS_PCT)
-                    tp = price * (1 - TAKE_PROFIT_PCT)
-                    logging.info(f"[{symbol}] SL: {sl:.4f}, TP: {tp:.4f}")
-    except Exception as e:
-        logging.error(f"[{symbol}] Trading error: {e}")
-
-def main():
+# -------------------
+# Main Loop
+# -------------------
+if __name__ == "__main__":
     while True:
-        for pair in PAIR_LIST:
-            run_trading_cycle(pair)
-        logging.info("Cycle complete. Sleeping...\n")
-        time.sleep(INTERVAL)
+        print(f"Running scalping bot - {datetime.utcnow()} UTC")
+        run_bot()
+        time.sleep(300)  # 5 minutes
