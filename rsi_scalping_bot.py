@@ -14,7 +14,7 @@ symbol = 'XRP/USDT:USDT'  # Unified Perpetual Futures pair
 timeframes = ['1m', '15m', '30m']
 limit = 100
 leverage = 10
-risk_pct = 0.05  # Use 5% of available capital
+risk_pct = 0.15  # Use 15% of available capital
 take_profit_pct = 0.03  # 3%
 stop_loss_pct = 0.015   # 1.5%
 
