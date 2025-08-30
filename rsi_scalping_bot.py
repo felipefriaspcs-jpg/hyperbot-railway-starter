@@ -30,24 +30,27 @@ try:
             return "ERROR"
 
         last = df.iloc[-1]
+
         if (
             last['rsi'] < 30 and
             last['MACD_12_26_9'] > last['MACDs_12_26_9'] and
             last['close'] < last['BBL_20_2.0']
         ):
             return "BUY"
+
         elif (
             last['rsi'] > 70 and
             last['MACD_12_26_9'] < last['MACDs_12_26_9'] and
             last['close'] > last['BBU_20_2.0']
         ):
             return "SELL"
+
         else:
             return "HOLD"
 
     # === Run Signal Check ===
     signal = generate_signal(df)
-    print(f"🔍 Trade Signal for {symbol}: {signal}")
+    print(f"📈 Trade Signal for {symbol}: {signal}")
 
 except Exception as e:
     print(f"❌ Error fetching or analyzing data: {e}")
