@@ -1,5 +1,11 @@
-.env
-__pycache__/
-*.pyc
-*.log
-.DS_Store
+# Virtual environments
+venv/
+.venv/
+
+# Data files
+*.csv
+*.db
+
+# IDE/editor settings
+.vscode/
+.idea/
