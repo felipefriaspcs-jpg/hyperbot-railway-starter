@@ -44,4 +44,19 @@ def generate_signal(df):
     """Return LONG, SHORT, or HOLD."""
     last = df.iloc[-1]
     if last["rsi"] < 30 and last["macd"] > last["signal"] and last["close"] < last["bb_lower"]:
-        retur
+        return "LONG"
+    elif last["rsi"] > 70 and last["macd"] < last["signal"] and last["close"] > last["bb_upper"]:
+        return "SHORT"
+    return "HOLD"
+
+def run_once():
+    """One cycle: fetch data, compute indicators, print signal."""
+    try:
+        df = fetch_ohlcv(SYMBOL)
+        df = add_indicators(df)
+        signal = generate_signal(df)
+        print(f"[{SYMBOL}] Signal: {signal}")
+        return signal
+    except Exception as e:
+        print(f"❌ Error in run_once: {e}")
+        return "ERROR"
