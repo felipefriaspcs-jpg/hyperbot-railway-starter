@@ -1,11 +1,13 @@
-# Virtual environments
+.env
+__pycache__/
+*.pyc
+*.log
+.DS_Store
+
+# Optional but handy
 venv/
 .venv/
-
-# Data files
 *.csv
 *.db
-
-# IDE/editor settings
 .vscode/
 .idea/
